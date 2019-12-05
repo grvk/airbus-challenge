@@ -5,4 +5,4 @@
 3. Run ```./scripts/download.sh```
 
 # To run tests:
-At the airbus-challenge dir: ```python -m tests.trainer```
+At the airbus-challenge dir: ```python -m unittest discover -v -p "tests_*.py"```

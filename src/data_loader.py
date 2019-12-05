@@ -121,7 +121,17 @@ def process_images_dict(image_dict):
 
 
 # test the function
-seg_fn = "/kaggle/input/airbus-ship-detection/train_ship_segmentations_v2.csv"
+# path used in kaggle platform
+# seg_fn = "/kaggle/input/airbus-ship-detection/train_ship_segmentations_v2.csv" 
+
+# path used in google cloud
+seg_fn = path.join(path.dirname(__file__), '../data/train_v2/train_ship_segmentations_v2.csv')
+# check if file exit
+if os.path.isfile(seg_fn):
+    print ("File exist")
+else:
+    print ("File not exist")
+
 image_dict = build_images_dict(seg_fn) 
 image_dict = process_images_dict(image_dict)
 

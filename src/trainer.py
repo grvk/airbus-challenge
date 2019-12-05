@@ -5,17 +5,66 @@ from dill.source import getsource
 import torch
 
 class Trainer(object):
+    """
+    Class simlifying training process of neural nets
+
+    Trainer helps to manage periodic comprehensive backups of the
+    model, trainer, loss functions, optimizer etc. Network training
+    could be continued from the point of any backup without losing
+    any state data. Additionally, the class provides such information
+    as: average epoch runtime, average batch runtime, predictions for
+    the training process time, live loss values (on train and
+    vavalidation sets), loss values' trends (increasing/decreasing).
+    Finally, it stores loss values on the train and validation datasets
+    for each epoch for later analysis, outputs final accuracy, and stores
+    a final backup.
+
+    Args:
+        model(:obj:`torch.nn.Module`): model to be trained
+        optimizer(:obj:`torch.optim.Optimizer`): optimizer function used to
+            update weights (i.e. SGD or Adam)
+        loss_fn(:obj:`function`, :obj:`torch.nn._Loss`): a loss function to
+            be applied to the output of the model during training
+        train_dataloader_creator(:obj:`function`): function returning a
+            new instance of a dataloader on a train dataset
+        val_dataloader_creator(:obj:`function`): function returning a
+            new instance of a dataloader on a validation dataset
+        backup_interval(int, optional): epoch interval after which neural net
+            is backed up. Defaults to 10. If set, this argument has priority
+            over backup_interval provided as part of trainer_state
+        device(:obj:`torch.device`, optional): device, on which neural net will
+            be trained. Should be the same device, on which model runs.
+            NOTE: send the model to this device before initializing an
+            optimizer. Defaults to torch.device("cpu").
+        custom_back_up_path(string, optional): path to the directory,
+            where backups will be stored. Defaults to airbus-challenge/backups
+        trainer_state(:obj:`dict`, optional): trainer state to initialize with.
+            Usually, comes as part of the backup. See _back_up() for more
+            details. By default, provides clean state.
+
+
+    Attributes:
+        device(:obj:`torch.device`): device where neural net is being trained.
+        model(:obj:`torch.nn.Module`): model that is being trained
+        train_loss_history(:obj:`list[float]`): loss values on train set for
+            each epoch. Calculated as a runtime average
+        validation_loss_history(:obj:`list[float]`): loss values on validation
+            set. Calculated at the end of each epoch.
+        final_train_acc(float): reported accuracy on train set at the end of the
+            training.
+        final_val_acc(float): reported accuracy on validation set at the end of
+            the training.
+    """
 
     DEFAULT_BACK_UP_PATH = path.join(path.dirname(__file__), '../backups/')
+    DEFAULT_BACK_UP_INTERVAL = 10
 
     def __init__(self, model, optimizer, loss_fn, \
             train_dataloader_creator, val_dataloader_creator, \
-            backup_interval=None, device=torch.device("cpu"), \
+            backup_interval=None, device=None, \
             custom_back_up_path = None, trainer_state={}):
-        """
 
-        """
-        self.device = device
+        self.device = device or torch.device("cpu")
         self.model = model
 
         self.optimizer = optimizer
@@ -24,12 +73,13 @@ class Trainer(object):
         self.train_dataloader_creator = train_dataloader_creator
         self.val_dataloader_creator = val_dataloader_creator
 
-        # preference to excplicit backup_interval setting
+        # preference to explicit backup_interval setting
         # if not set, try to get one from the trainer_state
         # if not available, use default = 10
         self.backup_interval = backup_interval
         if self.backup_interval is None:
-            self.backup_interval = trainer_state.get('backup_interval', 10)
+            self.backup_interval = trainer_state.get( \
+            'backup_interval', Trainer.DEFAULT_BACK_UP_INTERVAL)
 
         self.cur_epoch_idx = trainer_state.get('cur_epoch_idx', -1)
         self.cur_train_loss = trainer_state.get("cur_train_loss", -1)
@@ -42,28 +92,25 @@ class Trainer(object):
         self.back_up_path = custom_back_up_path
         if self.back_up_path is None:
             self.back_up_path = trainer_state.get( \
-                "back_up_path", Trainer.DEFAULT_BACK_UP_PATH)
+            "back_up_path", Trainer.DEFAULT_BACK_UP_PATH)
 
         self.train_loss_history = trainer_state.get('train_loss_history', [])
-        self.validation_loss_history = trainer_state.get('validation_loss_history', [])
-
+        self.validation_loss_history = \
+            trainer_state.get('validation_loss_history', [])
 
         if not path.exists(self.back_up_path):
             makedirs(self.back_up_path)
 
     def _back_up(self):
-
         backup = {
             'states' : {
                 'model': self.model.state_dict(),
-                # type of optimizer ?
-                # learning rate ? other options ?
                 'optimizer': self.optimizer.state_dict()
             },
             'fn_strings': {
                 'loss_fn': getsource(self.loss_fn),
-                # dataset info
-                'train_dataloader_creator': getsource(self.train_dataloader_creator),
+                'train_dataloader_creator': \
+                    getsource(self.train_dataloader_creator),
                 'val_dataloader_creator': getsource(self.val_dataloader_creator)
             },
             'trainer_state': {
@@ -99,9 +146,11 @@ class Trainer(object):
             previous_sma = 1
             new_sma = 0
         elif l > 5:
+            # simple moving average over the last 5 values
             previous_sma = sum(h[-6:-1]) / 5
             new_sma = sum(h[-5:]) / 5
         else:
+            # simple moving average over the len(losses) - 1 values
             previous_sma = sum(h[:-1]) / (l - 1)
             new_sma = sum(h[1:]) / (l - 1)
 
@@ -134,62 +183,13 @@ class Trainer(object):
         self.model.train(init_model_state)
         return val_loss_total / val_batches
 
-    def _get_validation_set_accuracy(self):
-        init_model_state = self.model.training
-        self.model.eval()
-
-        dtloadr = self.val_dataloader_creator()
-        val_acc = -1
-
-        with torch.no_grad():
-            correct = 0
-            total = 0
-            for (input, expected_output) in dtloadr:
-                input = input.to(self.device)
-                expected_output = expected_output.to(self.device)
-
-                actual_output = self.model(input)
-                predictions = torch.argmax(actual_output.data, 1)
-                correct += (predictions == expected_output).sum().item()
-                total += expected_output.size(0)
-
-            val_acc = correct / total
-
-        self.model.train(init_model_state)
-        return val_acc
-
-    def _get_train_set_accuracy(self):
-        init_model_state = self.model.training
-        self.model.eval()
-
-        dtloadr = self.train_dataloader_creator()
-        train_acc = -1
-
-        with torch.no_grad():
-            correct = 0
-            total = 0
-
-            for (input, expected_output) in dtloadr:
-                input = input.to(self.device)
-                expected_output = expected_output.to(self.device)
-
-                actual_output = self.model(input)
-                predictions = torch.argmax(actual_output.data, 1)
-                correct += (predictions == expected_output).sum().item()
-                total += expected_output.size(0)
-
-            train_acc = correct / total
-
-        self.model.train(init_model_state)
-        return train_acc
-
     def _train_epoch(self):
         assert self.model.training, "Model not in training mode"
 
         dtloadr = self.train_dataloader_creator()
 
-
-        for batch_idx, (input, expected_output) in tqdm(enumerate(dtloadr), leave=False):
+        progress_bar = tqdm(enumerate(dtloadr), leave=False)
+        for batch_idx, (input, expected_output) in progress_bar:
 
             input = input.to(self.device)
             expected_output = expected_output.to(self.device)
@@ -202,6 +202,7 @@ class Trainer(object):
             self.optimizer.step()
 
             loss_value = loss.item()
+            # average
             self.cur_train_loss = self.cur_train_loss * \
                 (batch_idx / (batch_idx + 1)) + loss_value / (batch_idx + 1)
 
@@ -213,7 +214,55 @@ class Trainer(object):
         self._update_train_loss_diff()
         self._update_val_loss_diff()
 
+    def evaluate_accuracy(self, dataloader_fn):
+        """Run model on the whole dataset and return accuracy"""
+        init_model_state = self.model.training
+        self.model.eval()
+
+        dtloadr = dataloader_fn()
+        acc = -1
+
+        with torch.no_grad():
+            correct = 0
+            total = 0
+
+            for (input, expected_output) in dtloadr:
+                input = input.to(self.device)
+                expected_output = expected_output.to(self.device)
+
+                actual_output = self.model(input)
+                predictions = torch.argmax(actual_output.data, 1)
+                correct += (predictions == expected_output).sum().item()
+                total += expected_output.size(0)
+
+            acc = correct / total
+
+        self.model.train(init_model_state)
+        return acc
+
     def train(self, epochs_num):
+        """
+        Train model for the given number of epochs.
+
+        The method shows a progress bar, which reports loss on the train
+        dataset, validatiton dataset, and trends of these losses. The values
+        are reported for the last epoch. Trends are represented with simple
+        moving averages: difference in average loss values over the last 5
+        epochs and over the 5 epochs preceding the last epoch. Negative values
+        indicate decreasing trend (loss values decrease). To calculate the
+        trends, the neural net needs to be trained at least for 2 epochs.
+        By default the value is -1. At the end of the training a backup is
+        created and accuracies on the train and validation sets are returned.
+        Additionally, model is backed up every self.backup_interval epochs
+
+        Args:
+            epochs_num(int): number of epochs to train for
+
+        Returns:
+            tuple(float, float): model accuracies on the train and validation
+                set correspondingly
+        """
+
         assert epochs_num > 0, "Cannot train for <= 0 epochs: {}".format(epochs_num)
         print("Training for {} epochs".format(epochs_num))
         print("Backing up results every {} epochs".format(self.backup_interval))
@@ -239,9 +288,11 @@ class Trainer(object):
 
         self.model.eval()
 
-        self.final_train_acc = self._get_train_set_accuracy()
-        self.final_val_acc = self._get_validation_set_accuracy()
+        self.final_train_acc = self.evaluate_accuracy(self.train_dataloader_creator)
+        self.final_val_acc = self.evaluate_accuracy(self.val_dataloader_creator)
         self._back_up()
 
         print("Done training. Train Accuracy = {ta}. Validation accuracy = {va}".
             format(ta = self.final_train_acc, va = self.final_val_acc))
+
+        return (self.final_train_acc, self.final_val_acc)

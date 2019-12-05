@@ -3,13 +3,19 @@ import torch.nn as nn
 from torchvision.models import vgg16
 
 class FCN8s(nn.Module):
+    """
+    FCN8s model with VGG16 backbone
+
+    Args:
+        num_of_classes(int): number of categories to classify
+        initialize("xavier", "imagenet", optional):
+            weight initilization method. Defaults to "xavier"
+    """
 
     def __init__(self, num_of_classes, initialize="xavier"):
-        """
-            initialize can be "xavier" or "imagenet"
-        """
         super(FCN8s, self).__init__()
 
+        # same layers as in VGG16
         self.layers12 = nn.Sequential(
             nn.Conv2d(3, 64, 3, stride=1, padding=100),
             nn.ReLU(),
@@ -23,6 +29,7 @@ class FCN8s(nn.Module):
             nn.MaxPool2d(2, stride=2, ceil_mode=True)
         )
 
+        # same layer as in VGG16
         self.layer3 = nn.Sequential(
             nn.Conv2d(128, 256, 3, stride=1, padding=1),
             nn.ReLU(),
@@ -32,8 +39,10 @@ class FCN8s(nn.Module):
             nn.ReLU(),
             nn.MaxPool2d(2, stride=2, ceil_mode=True)
         )
+        # use features from 3rd layer to perform classification
         self.layer3_score = nn.Conv2d(256, num_of_classes, 1)
 
+        # same layer as in VGG16
         self.layer4 = nn.Sequential(
             nn.Conv2d(256, 512, 3, stride=1, padding=1),
             nn.ReLU(),
@@ -43,8 +52,10 @@ class FCN8s(nn.Module):
             nn.ReLU(),
             nn.MaxPool2d(2, stride=2, ceil_mode=True)
         )
+        # use features from 4th level to perform classification
         self.layer4_score = nn.Conv2d(512, num_of_classes, 1)
 
+        # same layer as in VGG16
         self.layer5 = nn.Sequential(
             nn.Conv2d(512, 512, 3, stride=1, padding=1),
             nn.ReLU(),
@@ -55,6 +66,7 @@ class FCN8s(nn.Module):
             nn.MaxPool2d(2, stride=2, ceil_mode=True)
         )
 
+        # Fully-Convolutional versions of VGG16 layers without last classifier
         self.layers67 = nn.Sequential(
             nn.Conv2d(512, 4096, 7),
             nn.ReLU(),
@@ -64,8 +76,10 @@ class FCN8s(nn.Module):
             nn.Dropout(p=0.5)
         )
 
+        # Custom last classifier
         self.layer8_score = nn.Conv2d(4096, num_of_classes, 1)
 
+        # upsampling functions to produce segmentation
         self.layer8_upsample2x = nn.ConvTranspose2d( \
             num_of_classes, num_of_classes, kernel_size=4, stride=2, bias=False)
         self.layer4_upsample2x = nn.ConvTranspose2d( \
@@ -84,6 +98,25 @@ class FCN8s(nn.Module):
 
 
     def forward(self, input):
+        """
+        Forward path
+
+        The first 5 layers work the same way as in VGG16.
+        Then the following logic is followed:
+            - The final feature map is reduced 32
+            - Produce final score
+            - Upsample it 2x (need to upsample 16x more)
+            - Use output of the 4th layer to produce score
+            - Add up the scores from layer 5 and 4
+            - Uppsample the cumulative score 2x (need to upsample 8x more)
+            - Use output of the 3rd layer to produce score
+            - Add it to the cumulative score
+            - Upsample 8x - initial scale
+            - Crop the center to get original dimensions (originally used padding=100)
+
+        Args:
+            input(torch.Tensor) - input image
+        """
         output = self.layers12(input)
         output = self.layer3(output)
         layer3_output = output

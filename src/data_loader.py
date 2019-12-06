@@ -5,88 +5,99 @@ import random
 import collections
 import numpy as np
 import pandas as pd
+from helper import *
+from torch.utils import data as D
+from rle_handler import RLEHandler
 
 
 
-class ImageSegmentaionDataset():
-    """Image Segmentation dataset"""
+
+class AirbusDataset(D.Dataset):
+    """Data loader for airbus dataset."""
     
-    def __init__(self, image_dict, loader_type, replacement=True, transform=None):
+    def __init__(self, image_dict, path_to_images, loader_type, replacement=True, transform=None):
         """
         Args:
-        image_dict (dict): a dict of the following format:
+        image_dict: (dict) a dict of the following format:
                         {"ships": {"imageId": "segmentation pixels"}， “w/ships”: ["imageId"]}
-        loader_type: (string)"classification" or "segmentation"
+        path_to_images: (string) the path to images  
+        loader_type: (string) "classification" or "segmentation"
         replacement: (bool) sample with/without replacement
-        transform (callable, optional): Optional transform to be applied on a sample.
+        transform: (callable, optional) Optional transform to be applied on a sample.
+        
+        Attributes:
+        image_filenames:a list containing all the names of the images
         """
         self.image_dict = image_dict
+        self.path_to_images = path_to_images
         self.loader_type = loader_type
         self.replacement = replacement
-        # images_list is the name 
-        self.images_list = list(image_dict["ships"].keys()) + image_dict["w/ships"]
-        random.shuffle(self.images_list) 
+        self.image_filenames = list(image_dict["ships"].keys()) + image_dict["w/ships"]
         self.transform = transform
+        self.resize_transform = None
+        random.shuffle(self.image_filenames) 
     
     def __len__(self):
-        return len(self.images_list)
-    
-    def rle_decode(self, mask_rle, shape=(768, 768)):
-        """
-        mask_rle: run-length as string formated (start length)
-        shape: (height,width) of array to return 
-        Returns numpy array, 1 - mask, 0 - background
-        """
-        s = mask_rle.split()
-        starts, lengths = [np.asarray(x, dtype=int) for x in (s[0:][::2], s[1:][::2])]
-        starts -= 1
-        ends = starts + lengths
-        img = np.zeros(shape[0]*shape[1], dtype=np.uint8)
-        for lo, hi in zip(starts, ends):
-            img[lo:hi] = 1
-        return img.reshape(shape).T  # Needed to align to RLE direction
-    
-    def masks_as_image(self, in_mask_list):
-        # Take the individual ship masks and create a single mask array for all ships
-        all_masks = np.zeros((768, 768), dtype = np.int16)
-        #if isinstance(in_mask_list, list):
-        for mask in in_mask_list:
-            if isinstance(mask, str):
-                all_masks += self.rle_decode(mask)
-        return np.expand_dims(all_masks, -1)
-    
-    
-    def retrive_image_matrix(self, image_id):
-        # google platform (TODO!!!!!!!!!)
-        image_path = path.join(path.dirname(__file__), '../data/train_v2/', image_id)
+        return len(self.image_filenames)
 
-        # kaggle image path
-        #image_path = "/kaggle/input/airbus-ship-detection/train_v2/" + image_id
+    def retrive_image_matrix(self, image_id):
+        """
+        Get the image in shape of (768, 768, 3) using image_id
+        
+        Args:
+        image_id: (string) image file name
+        """
+
+        image_path = os.path.join(self.path_to_images, image_id)
         img = PIL.Image.open(image_path)
-        image_mat = np.array(img)
+        image_mat = np.array(img) # (768, 768, 3)
         return image_mat
         
     def __getitem__(self, idx):
-        image_id = self.images_list[idx]
+        """
+        get a data point for segmentation/classfication based on the 'idx'
+
+        output for classification:
+        image with ship: (<3x768x768 tenser of 0-255 values>, [0,1])
+        image without ship: (<3x768x768 tenser of 0-255 values>, [1,0])
+        
+        output for segmentation:
+        image with ship: (<3x768x768 tenser of 0-255 values>, <1x768x768 tenser of 0's and 1's>)
+        image without ship: (<3x768x768 tenser of 0-255 values>, <1x768x768 tenser of 0's>)
+        
+        """
+
+
+        image_id = self.image_filenames[idx]
         no_ship_list = image_dict["w/ships"]
-        image_mat = self.retrive_image_matrix(image_id)
+        image_mat = self.retrive_image_matrix(image_id) # (768, 768, 3)
+        image_mat = np.reshape(image_mat, (3, 768, 768))
+        
+        
         # dataloader for classification
+        # [1, 0] means it belongs to the first category (no ships)
+        # [0, 1] means it belongs to the second category (ships present)
         if self.loader_type == "classification":
             if image_id in no_ship_list:
-                sample = {"image": image_mat, "class": 0}
+                sample = (image_mat, [1, 0])
             else:
-                sample = {"image": image_mat, "class": 1}
+                sample = (image_mat, [0, 1])
         
         # dataloader for segmentation 
         else: 
-            mask_list = image_dict["ships"][image_id]
-            mask = self.masks_as_image(mask_list) 
-            sample = {"image": image_mat, "mask": mask}
+            if image_id in no_ship_list:
+                mask = np.zeros((768, 768), dtype = np.int16)
+            else:
+                mask_list = self.image_dict["ships"][image_id]
+                rle_handler = RLEHandler(mask_list)
+                mask = rle_handler.masks_as_image() 
+            mask = np.reshape(mask, (1, 768, 768))
+            sample = (image_mat, mask)
 
         
         # remove image id if sample without replacement
         if self.replacement:
-            self.images_list.remove(image_id)
+            self.image_filenames.remove(image_id)
 
         if self.transform:
             sample = self.transform(sample)
@@ -94,67 +105,9 @@ class ImageSegmentaionDataset():
         return sample
     
     def __random_sampler__(self):
-        n_image_list = len(self.images_list)
+        n_image_list = len(self.image_filenames)
         
         # randomly choose a idx
         random_idx = random.randint(0,n_image_list)
         sample = self.__getitem__(random_idx)
         return sample
-
-
-
-# helper functions
-
-# input: file name of the segmentation csv file
-# output: a dictionary {"ships": {"imageId": list of segmentation pixels}， “w/ships”: ["imageId"]}
-def build_images_dict(csv_fn):
-    """build dictionaries of images with/without ships"""
-    
-    data = pd.read_csv(csv_fn)
-    no_ships_list = []
-    ship_dict = collections.defaultdict(list)  # {"imageId": "segmentation pixels"}
-    for index, row in data.iterrows():
-        image_id = row["ImageId"]
-        encoded_pixels = row["EncodedPixels"]
-        if pd.isnull(data.loc[index, "EncodedPixels"]) :
-            no_ships_list.append(image_id)
-        else:
-            ship_dict[image_id].append(encoded_pixels)
-    image_dict = dict({"ships": ship_dict, "w/ships": no_ships_list})
-    return(image_dict)
-
-
-# preprocess the image dict to have same images with/without ships
-def process_images_dict(image_dict):
-    n = len(image_dict["ships"])
-    image_dict["w/ships"] = random.choices(image_dict["w/ships"], k=n)
-    return image_dict
-
-
-# test the function
-# path used in kaggle platform
-# seg_fn = "/kaggle/input/airbus-ship-detection/train_ship_segmentations_v2.csv" 
-
-# path used in google cloud
-seg_fn = path.join(path.dirname(__file__), '../data/train_v2/train_ship_segmentations_v2.csv')
-# check if file exit
-if os.path.isfile(seg_fn):
-    print ("File exist")
-else:
-    print ("File not exist")
-
-image_dict = build_images_dict(seg_fn) 
-image_dict = process_images_dict(image_dict)
-
-# dataloader for classfication 
-dataloader_c = ImageSegmentaionDataset(image_dict, "classification")   
-# dataloader for segmentation
-dataloader_s = ImageSegmentaionDataset(image_dict, "segmentation") 
-
-# {'image': 3d mat, 'mask': array([[[0],.....,[0]]], dtype=int16)}
-# mask is with shape of 768 * 768
-sample_s = dataloader_s.__random_sampler__()
-
-
-# {'image': 3d mat, 'class': 0}
-sample_c = dataloader_c.__random_sampler__()

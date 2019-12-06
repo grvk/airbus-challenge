@@ -1,4 +1,5 @@
 import os
+import PIL
 import torch
 import random
 import collections
@@ -11,7 +12,6 @@ class ImageSegmentaionDataset():
     """Image Segmentation dataset"""
     
     def __init__(self, image_dict, loader_type, replacement=True, transform=None):
-        
         """
         Args:
         image_dict (dict): a dict of the following format:
@@ -20,7 +20,6 @@ class ImageSegmentaionDataset():
         replacement: (bool) sample with/without replacement
         transform (callable, optional): Optional transform to be applied on a sample.
         """
-        
         self.image_dict = image_dict
         self.loader_type = loader_type
         self.replacement = replacement
@@ -55,32 +54,43 @@ class ImageSegmentaionDataset():
             if isinstance(mask, str):
                 all_masks += self.rle_decode(mask)
         return np.expand_dims(all_masks, -1)
+    
+    
+    def retrive_image_matrix(self, image_id):
+        # google platform (TODO!!!!!!!!!)
+        image_path = path.join(path.dirname(__file__), '../data/train_v2/', image_id)
 
+        # kaggle image path
+        #image_path = "/kaggle/input/airbus-ship-detection/train_v2/" + image_id
+        img = PIL.Image.open(image_path)
+        image_mat = np.array(img)
+        return image_mat
+        
     def __getitem__(self, idx):
         image_id = self.images_list[idx]
         no_ship_list = image_dict["w/ships"]
+        image_mat = self.retrive_image_matrix(image_id)
         # dataloader for classification
         if self.loader_type == "classification":
             if image_id in no_ship_list:
-                sample = {"image_id": image_id, "class": 0}
+                sample = {"image": image_mat, "class": 0}
             else:
-                sample = {"image_id": image_id, "class": 1}
+                sample = {"image": image_mat, "class": 1}
         
         # dataloader for segmentation 
         else: 
             mask_list = image_dict["ships"][image_id]
             mask = self.masks_as_image(mask_list) 
-            sample = {"image_id": image_id, "mask": mask}
+            sample = {"image": image_mat, "mask": mask}
 
         
         # remove image id if sample without replacement
         if self.replacement:
             self.images_list.remove(image_id)
 
-         
         if self.transform:
             sample = self.transform(sample)
-
+        
         return sample
     
     def __random_sampler__(self):
@@ -90,6 +100,7 @@ class ImageSegmentaionDataset():
         random_idx = random.randint(0,n_image_list)
         sample = self.__getitem__(random_idx)
         return sample
+
 
 
 # helper functions
@@ -140,10 +151,10 @@ dataloader_c = ImageSegmentaionDataset(image_dict, "classification")
 # dataloader for segmentation
 dataloader_s = ImageSegmentaionDataset(image_dict, "segmentation") 
 
-# {'image_id': '5a363988f.jpg', 'mask': array([[[0],.....,[0]]], dtype=int16)}
+# {'image': 3d mat, 'mask': array([[[0],.....,[0]]], dtype=int16)}
 # mask is with shape of 768 * 768
 sample_s = dataloader_s.__random_sampler__()
 
 
-# {'image_id': 'fab214049.jpg', 'class': 0}
+# {'image': 3d mat, 'class': 0}
 sample_c = dataloader_c.__random_sampler__()

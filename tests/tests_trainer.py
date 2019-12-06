@@ -49,6 +49,7 @@ class StateAndBackupTests(unittest.TestCase):
         transform = self._get_transforms()
         self.val_set, self.train_set = self._get_val_train_sets(transform)
 
+        device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
         device = torch.device('cpu')
         net = ConvNet()
         net.to(device)

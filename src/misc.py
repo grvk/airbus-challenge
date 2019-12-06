@@ -1,4 +1,4 @@
-from torch import argmax, nn
+from torch import nn, argmax
 
 def ClassificationAccuracy(output, target):
     """

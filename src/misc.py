@@ -1,4 +1,4 @@
-from torch import Tensor, nn
+from torch import Tensor, nn, argmax
 
 class CrossEntropyLossModified(nn.CrossEntropyLoss):
     def __init__(self, **kwargs):
@@ -8,7 +8,7 @@ class CrossEntropyLossModified(nn.CrossEntropyLoss):
         return super(CrossEntropyLossModified, self).forward( \
             input, target.squeeze(1))
 
-def BasicIoU(output, target, classes_to_exclude=[]):
+def BasicIoU(output, target):
     """
     Intersection of Unions (works on binary masks only)
 
@@ -17,11 +17,11 @@ def BasicIoU(output, target, classes_to_exclude=[]):
             of shape BATCHES x CHANNELS(always=1) x HEIGHT x WIDTH
         target(:obj:`torch.Tensor`) - expected segmentation mask
             of shape BATCHES x CHANNELS(always=1) x HEIGHT x WIDTH
-        IoU = Area of Intersection /
-            (output area + input area - area of interscection)
 
     Returns:
-        IoU averaged over batches
+        IoU = Area of Intersection /
+            (output area + input area - area of interscection)
+            averaged over batches
     """
 
     batches_num, _, _, _ = output.size()
@@ -41,3 +41,21 @@ def BasicIoU(output, target, classes_to_exclude=[]):
             iou_count += 1
 
     return iou_sum / iou_count if iou_count != 0 else 0
+
+def ClassificationAccuracy(output, target):
+    """
+    ClassificationAccuracy on a given batch
+
+    Args:
+        output(:obj:`torch.Tensor`) - predicted segmentation mask
+            of shape BATCHES x SCORES FOR DIFFERENT CLASSES
+        target(:obj:`torch.Tensor`) - expected segmentation mask
+            of shape BATCHES x SCORES FOR DIFFERENT CLASSES
+
+    Returns:
+        Classification Accuracy averaged over the batch of images
+    """
+    predictions = argmax(output.data, 1) # indices of the predicted clases
+    correct = (predictions == target).sum().item()
+    total = output.size(0)
+    return correct / total

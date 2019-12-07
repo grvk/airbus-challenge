@@ -1,3 +1,7 @@
+import collections
+import random
+import pandas as pd
+import torch
 from torch import nn, argmax
 
 def ClassificationAccuracy(output, target):
@@ -13,7 +17,7 @@ def ClassificationAccuracy(output, target):
     Returns:
         Classification Accuracy averaged over the batch of images
     """
-    predictions = argmax(output.data, 1) # indices of the predicted clases
+    predictions = torch.argmax(output.data, 1) # indices of the predicted clases
     correct = (predictions == target).sum().item()
     total = output.size(0)
     return correct / total
@@ -48,3 +52,49 @@ class CrossEntropyLoss2D(nn.CrossEntropyLoss):
 
         res = super(CrossEntropyLoss2D, self).forward(prediction, target)
         return res if self.norm_coef == 1 else res * self.norm_coef
+
+
+# output: a dictionary {"ships": {"imageId": list of segmentation pixels}， “w/ships”: ["imageId"]}
+def build_images_dict(csv_fn):
+    """
+    build dictionaries of images with/without ships
+    Args:
+    csv_fn: file name of the segmentation csv file
+    """
+
+    data = pd.read_csv(csv_fn)
+    no_ships_list = []
+    ship_dict = collections.defaultdict(list)  # {"imageId": "segmentation pixels"}
+    for index, row in data.iterrows():
+        image_id = row["ImageId"]
+        encoded_pixels = row["EncodedPixels"]
+        if pd.isnull(data.loc[index, "EncodedPixels"]) :
+            no_ships_list.append(image_id)
+        else:
+            ship_dict[image_id].append(encoded_pixels)
+    image_dict = dict({"ships": ship_dict, "w/ships": no_ships_list})
+    return(image_dict)
+
+
+# preprocess the image dict to have same images with/without ships
+def process_images_dict(image_dict):
+    n = len(image_dict["ships"])
+    image_dict["w/ships"] = random.choices(image_dict["w/ships"], k=n)
+    return image_dict
+
+def split_images_dict(image_dict, train_portion):
+    train_img_dict = {"ships": [], "w/ships": []}
+    val_img_dict = {"ships": [], "w/ships": []}
+
+    no_ships_len = len(image_dict["w/ships"])
+    ships_items = list(image_dict["ships"].items())
+    with_ships_len = len(ships_items)
+
+    no_ships_split_boundary_idx = int((no_ships_len - 1) * train_portion)
+    with_ships_split_boundary_idx = int((with_ships_len - 1) * train_portion)
+
+    train_img_dict["w/ships"] = image_dict["w/ships"][:no_ships_split_boundary_idx]
+    val_img_dict["w/ships"] = image_dict["w/ships"][no_ships_split_boundary_idx:]
+
+    train_img_dict["ships"] = dict(ships_items[:with_ships_split_boundary_idx])
+    val_img_dict["ships"] = dict(ships_items[with_ships_split_boundary_idx:])

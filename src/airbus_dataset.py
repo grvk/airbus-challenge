@@ -13,7 +13,7 @@ from .rle_handler import RLEHandler
 class AirbusDataset(D.Dataset):
     """Data loader for airbus dataset."""
 
-    def __init__(self, image_dict, path_to_images, loader_type, replacement=True, transform=None):
+    def __init__(self, image_dict, path_to_images, loader_type, replacement=True, src_transform=None, target_transform=None):
         """
         Args:
         image_dict: (dict) a dict of the following format:
@@ -31,7 +31,8 @@ class AirbusDataset(D.Dataset):
         self.loader_type = loader_type
         self.replacement = replacement
         self.image_filenames = list(image_dict["ships"].keys()) + image_dict["w/ships"]
-        self.transform = transform
+        self.src_transform = src_transform
+        self.target_transform = target_transform
         self.resize_transform = None
         random.shuffle(self.image_filenames)
 
@@ -67,10 +68,11 @@ class AirbusDataset(D.Dataset):
 
 
         image_id = self.image_filenames[idx]
-        no_ship_list = image_dict["w/ships"]
+        no_ship_list = self.image_dict["w/ships"]
         image_mat = self.retrive_image_matrix(image_id) # (768, 768, 3)
-        image_mat = np.reshape(image_mat, (3, 768, 768))
 
+        if self.src_transform:
+            image_mat = self.src_transform(image_mat)
 
         # dataloader for classification
         # [1, 0] means it belongs to the first category (no ships)
@@ -89,16 +91,16 @@ class AirbusDataset(D.Dataset):
                 mask_list = self.image_dict["ships"][image_id]
                 rle_handler = RLEHandler(mask_list)
                 mask = rle_handler.masks_as_image()
-            mask = np.reshape(mask, (1, 768, 768))
+            
+            if self.target_transform:
+                mask = self.target_transform(mask).to(torch.long)
+                
             sample = (image_mat, mask)
 
 
         # remove image id if sample without replacement
         if self.replacement:
             self.image_filenames.remove(image_id)
-
-        if self.transform:
-            sample = self.transform(sample)
 
         return sample
 

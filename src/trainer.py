@@ -66,7 +66,7 @@ class Trainer(object):
     def __init__(self, model, optimizer, loss_fn, \
             train_dataloader_creator, val_dataloader_creator, \
             backup_interval=None, device=None, final_eval_fn=None,\
-            custom_back_up_path = None, trainer_state={}):
+            custom_back_up_path = None, extra_backup_info = None, trainer_state={}):
 
         self.device = device or torch.device("cpu")
         self.model = model
@@ -85,6 +85,8 @@ class Trainer(object):
         if self.backup_interval is None:
             self.backup_interval = trainer_state.get( \
             'backup_interval', Trainer.DEFAULT_BACK_UP_INTERVAL)
+        
+        self.extra_backup_info = extra_backup_info
 
         self.cur_epoch_idx = trainer_state.get('cur_epoch_idx', -1)
         self.cur_train_loss = trainer_state.get("cur_train_loss", -1)
@@ -131,7 +133,8 @@ class Trainer(object):
                 'final_train_eval': self.final_train_eval,
                 'final_val_eval': self.final_val_eval,
                 'back_up_path': self.back_up_path
-            }
+            },
+            'extra_info': self.extra_backup_info
         }
 
         torch.save(backup, path.join(self.back_up_path, \
@@ -232,7 +235,9 @@ class Trainer(object):
 
             total_metric = 0
             count = 0
-            for (input, expected_output) in dtloadr:
+            
+            progress_bar = tqdm(dtloadr)
+            for (input, expected_output) in progress_bar:
                 input = input.to(self.device)
                 expected_output = expected_output.to(self.device)
                 actual_output = self.model(input)

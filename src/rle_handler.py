@@ -1,3 +1,5 @@
+import numpy as np
+
 class RLEHandler(): 
     """
     Take the individual ship masks and 

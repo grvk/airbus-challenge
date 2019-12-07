@@ -19,6 +19,6 @@ chmod 666 airbus-ship-detection.zip && unzip airbus-ship-detection.zip -d .
 chmod 666 sample_submission_v2.csv
 chmod 666 train_ship_segmentations_v2.csv
 
-chmod 666 train_v2.zip && unzip train_v2.zip -d ./train_v2/. && rm -r train_v2.zip && \
-chmod 666 test_v2.zip && unzip test_v2.zip -d ./test_v2/. && rm -r test_v2.zip && \
+chmod 666 train_v2.zip && unzip -qq train_v2.zip -d ./train_v2/. && rm -r train_v2.zip && \
+chmod 666 test_v2.zip && unzip -qq test_v2.zip -d ./test_v2/. && rm -r test_v2.zip && \
 rm -r airbus-ship-detection.zip

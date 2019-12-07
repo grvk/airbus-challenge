@@ -1,8 +1,8 @@
 import collections
 import random
 import pandas as pd
-import numpy as np
-from torch import Tensor, nn, argmax
+import torch
+from torch import Tensor, nn
 
 class CrossEntropyLossModified(nn.CrossEntropyLoss):
     def __init__(self, **kwargs):
@@ -18,7 +18,7 @@ def BasicIoU(output, target):
 
     Args:
         output(:obj:`torch.Tensor`) - predicted segmentation mask
-            of shape BATCHES x CHANNELS(always=1) x HEIGHT x WIDTH
+            of shape BATCHES x CHANNELS x HEIGHT x WIDTH
         target(:obj:`torch.Tensor`) - expected segmentation mask
             of shape BATCHES x CHANNELS(always=1) x HEIGHT x WIDTH
 
@@ -28,20 +28,22 @@ def BasicIoU(output, target):
             averaged over batches
     """
 
-    batches_num, _, _, _ = output.size()
+    batches_num, _, h, w = output.size()
+    
+    output_ship_segmentation = output[:, [1], :, :]
+    # convert to bool
+    output_ship_segmentation = output_ship_segmentation == 1
+    target = target == 1
 
-    output = output == 1 # convert to bool
-    target = target == 1 # convert to bool
-
-    intersctn = torch.sum(output == target, (1,2,3))
+    intersctn = torch.sum(output_ship_segmentation == target, (1,2,3))
     output_area = torch.sum(output, (1,2,3))
     target_area = torch.sum(target, (1,2,3))
 
     iou_sum = 0
     iou_count = 0
     for i in list(range(batches_num)):
-        if (intersctn[0] == 0) and (target_area != 0) or (intersctn[i] != 0):
-            ios_sum = intersctn / (output_area + target_area - intersctn)
+        if (intersctn[i] == 0) and (target_area[i] != 0) or (intersctn[i] != 0):
+            ios_sum = intersctn[i] / (output_area[i] + target_area[i] - intersctn[i])
             iou_count += 1
 
     return iou_sum / iou_count if iou_count != 0 else 0
@@ -59,7 +61,7 @@ def ClassificationAccuracy(output, target):
     Returns:
         Classification Accuracy averaged over the batch of images
     """
-    predictions = argmax(output.data, 1) # indices of the predicted clases
+    predictions = torch.argmax(output.data, 1) # indices of the predicted clases
     correct = (predictions == target).sum().item()
     total = output.size(0)
     return correct / total
@@ -103,9 +105,9 @@ def split_images_dict(image_dict, train_portion):
 
     no_ships_split_boundary_idx = int((no_ships_len - 1) * train_portion)
     with_ships_split_boundary_idx = int((with_ships_len - 1) * train_portion)
-
-    train_img_dict["w/ships"], val_img_dict["w/ships"] = \
-        np.split(image_dict["w/ships"], (no_ships_split_boundary_idx,))
+    
+    train_img_dict["w/ships"] = image_dict["w/ships"][:no_ships_split_boundary_idx]
+    val_img_dict["w/ships"] = image_dict["w/ships"][no_ships_split_boundary_idx:]
 
     train_img_dict["ships"] = dict(ships_items[:with_ships_split_boundary_idx])
     val_img_dict["ships"] = dict(ships_items[with_ships_split_boundary_idx:])

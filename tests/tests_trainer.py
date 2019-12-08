@@ -14,6 +14,7 @@ from os import path, listdir
 
 from .simple_model import ConvNet
 from src.trainer import Trainer
+from src.misc import ClassificationAccuracy
 
 
 class StateAndBackupTests(unittest.TestCase):
@@ -69,6 +70,7 @@ class StateAndBackupTests(unittest.TestCase):
         self.trainer = Trainer(net, optimizer, net.criterion, \
             self.train_dataloader_creator, self.val_dataloader_creator,
             backup_interval, device=device, \
+            final_eval_fn=ClassificationAccuracy,\
             custom_back_up_path = self.custom_back_up_path)
 
         self.trainer.train(self.epochs)

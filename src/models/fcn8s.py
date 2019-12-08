@@ -88,8 +88,10 @@ class FCN8s(nn.Module):
             num_of_classes, num_of_classes, kernel_size=16, stride=8, bias=False)
 
         if initialize == "xavier":
+            print("INITIALIZING xavier")
             self._initialize_xavier()
         elif initialize == "imagenet":
+            print("INITIALIZING imagenet")
             self._initialize_imagenet()
         else:
             raise ValueError( \

@@ -1,8 +1,9 @@
-from tqdm import tqdm, trange
+from tqdm import trange, tqdm
 from os import path, makedirs
 from datetime import datetime
 from dill.source import getsource
 import torch
+from torch import autograd
 
 class Trainer(object):
     """
@@ -62,13 +63,14 @@ class Trainer(object):
 
     DEFAULT_BACK_UP_PATH = path.join(path.dirname(__file__), '../backups/')
     DEFAULT_BACK_UP_INTERVAL = 10
+    DEFAULT_DEVICE = torch.device("cpu")
 
     def __init__(self, model, optimizer, loss_fn, \
             train_dataloader_creator, val_dataloader_creator, \
-            backup_interval=None, device=None, final_eval_fn=None,\
+            backup_interval=None, device=DEFAULT_DEVICE, final_eval_fn=None,\
             custom_back_up_path = None, extra_backup_info = None, trainer_state={}):
-
-        self.device = device or torch.device("cpu")
+        
+        self.device = device
         self.model = model
 
         self.optimizer = optimizer
@@ -88,6 +90,7 @@ class Trainer(object):
         
         self.extra_backup_info = extra_backup_info
 
+        
         self.cur_epoch_idx = trainer_state.get('cur_epoch_idx', -1)
         self.cur_train_loss = trainer_state.get("cur_train_loss", -1)
         self.cur_val_loss = trainer_state.get("cur_val_loss", -1)
@@ -114,13 +117,13 @@ class Trainer(object):
                 'model': self.model.state_dict(),
                 'optimizer': self.optimizer.state_dict()
             },
-            'fn_strings': {
-                'loss_fn': getsource(self.loss_fn),
-                'final_eval_fn': getsource(self.final_eval_fn),
-                'train_dataloader_creator': \
-                    getsource(self.train_dataloader_creator),
-                'val_dataloader_creator': getsource(self.val_dataloader_creator)
-            },
+#             'fn_strings': {
+#                 'loss_fn': getsource(self.loss_fn),
+#                 'final_eval_fn': getsource(self.final_eval_fn),
+#                 'train_dataloader_creator': \
+#                     getsource(self.train_dataloader_creator),
+#                 'val_dataloader_creator': getsource(self.val_dataloader_creator)
+#             },
             'trainer_state': {
                 'train_loss_history': self.train_loss_history,
                 'validation_loss_history': self.validation_loss_history,
@@ -141,10 +144,17 @@ class Trainer(object):
             "{d}_epoch_{e}.pth".format( \
             d=datetime.now().strftime('%Y-%m-%d_%H:%M:%S'), \
             e=self.cur_epoch_idx)))
+        
+        del backup # ensuring cleanup
 
     def _calculate_loss_diff(self, is_train):
         h = self.train_loss_history if is_train else self.validation_loss_history
         l = len(h)
+        
+        if isinstance(h, torch.Tensor):
+            print("~~~~~~~~~~~~~~~~~~~~~~~~~~ h - tensor")
+        if isinstance(l, torch.Tensor):
+            print("~~~~~~~~~~~~~~~~~~~~~~~~~~ l - tensor")
 
         # simple moving averages
         previous_sma = None
@@ -158,21 +168,36 @@ class Trainer(object):
             # simple moving average over the last 5 values
             previous_sma = sum(h[-6:-1]) / 5
             new_sma = sum(h[-5:]) / 5
+            if isinstance(previous_sma, torch.Tensor):
+                print("~~~~~~~~~~~~~~~~~~~~~~~~~~ previous_sma - tensor")
+            if isinstance(new_sma, torch.Tensor):
+                print("~~~~~~~~~~~~~~~~~~~~~~~~~~ new_sma - tensor")
         else:
             # simple moving average over the len(losses) - 1 values
             previous_sma = sum(h[:-1]) / (l - 1)
+            if isinstance(previous_sma, torch.Tensor):
+                print("~~~~~~~~~~~~~~~~~~~~~~~~~~ previous_sma - tensor")
             new_sma = sum(h[1:]) / (l - 1)
+            if isinstance(new_sma, torch.Tensor):
+                print("~~~~~~~~~~~~~~~~~~~~~~~~~~ new_sma - tensor")
 
         return new_sma - previous_sma
 
     def _update_val_loss_diff(self):
         self.val_loss_diff = self._calculate_loss_diff(False)
+        if isinstance(self.val_loss_diff, torch.Tensor):
+            print("~~~~~~~~~~~~~~~~~~~~~~~~~~ self.val_loss_diff - tensor")
 
     def _update_train_loss_diff(self):
         self.train_loss_diff = self._calculate_loss_diff(True)
+        if isinstance(self.train_loss_diff, torch.Tensor):
+            print("~~~~~~~~~~~~~~~~~~~~~~~~~~ self.train_loss_diff - tensor")
 
     def _get_validation_set_loss(self):
+        print("__get validation loss")
         init_model_state = self.model.training
+        if isinstance(init_model_state, torch.Tensor):
+            print("~~~~~~~~~~~~~~~~~~~~~~~~~~ _get_validation_set_loss.init_model_state - tensor")
         self.model.eval()
 
         dtloadr = self.val_dataloader_creator()
@@ -181,39 +206,68 @@ class Trainer(object):
         val_batches = 0
         with torch.no_grad():
             for (input, expected_output) in dtloadr:
-                input = input.to(self.device)
-                expected_output = expected_output.to(self.device)
-
-                actual_output = self.model(input)
-                loss = self.loss_fn(actual_output, expected_output).item()
+                device_input = input.to(self.device)
+                device_expected_output = expected_output.to(self.device)
+                
+                actual_output = self.model(device_input)
+                loss = self.loss_fn(actual_output, device_expected_output).item()
+                print("LOSS={}".format(loss))
+                
+                if isinstance(loss, torch.Tensor):
+                    print("~~~~~~~~~~~~~~~~~~~~~~~~~~ _get_validation_set_loss.loss - tensor")
+                
                 val_loss_total += loss
                 val_batches += 1
+                
+                del input, device_input, expected_output, device_expected_output, actual_output
 
         self.model.train(init_model_state)
+        if isinstance(val_loss_total, torch.Tensor):
+            print("~~~~~~~~~~~~~~~~~~~~~~~~~~ _get_validation_set_loss.val_loss_total - tensor")
+            
         return val_loss_total / val_batches
 
     def _train_epoch(self):
         assert self.model.training, "Model not in training mode"
 
         dtloadr = self.train_dataloader_creator()
+        self.cur_train_loss = 0
 
-        progress_bar = tqdm(enumerate(dtloadr), leave=False)
-        for batch_idx, (input, expected_output) in progress_bar:
+        with autograd.detect_anomaly():
+            progress_bar = tqdm(enumerate(dtloadr), ncols=80, leave=False)
+            #progress_bar = enumerate(dtloadr)
+            for batch_idx, (input, expected_output) in progress_bar:
 
-            input = input.to(self.device)
-            expected_output = expected_output.to(self.device)
+                device_input = input.to(self.device)
+                device_expected_output = expected_output.to(self.device)
 
-            self.optimizer.zero_grad()
+                self.optimizer.zero_grad()
+                actual_output = self.model(device_input)
+                loss = self.loss_fn(actual_output, device_expected_output) #??????
 
-            actual_output = self.model(input)
-            loss = self.loss_fn(actual_output, expected_output)
-            loss.backward()
-            self.optimizer.step()
+                if (batch_idx % 10) == 0:
+                    self.train_loss_history.append(self.cur_train_loss)
+                    self._update_train_loss_diff()
+                    self._update_val_loss_diff()
+                    progress_bar.set_description("Train loss={tl}, diff={td}. " \
+                        "Val loss={vl}, diff={vd}.".format( \
+                        tl=self.cur_train_loss, td=self.train_loss_diff, \
+                        vl=self.cur_val_loss, vd=self.val_loss_diff))
 
-            loss_value = loss.item()
-            # average
-            self.cur_train_loss = self.cur_train_loss * \
-                (batch_idx / (batch_idx + 1)) + loss_value / (batch_idx + 1)
+                loss.backward()
+                self.optimizer.step()
+
+                loss_value = loss.item()
+                # average
+                self.cur_train_loss = self.cur_train_loss * \
+                    (batch_idx / (batch_idx + 1)) + loss_value / (batch_idx + 1)
+
+                if isinstance(self.cur_train_loss, torch.Tensor):
+                    print("~~~~~~~~~~~~~~~~~~~~~~~~~~ _train_epoch.self.cur_train_loss - tensor")
+
+                del input, device_input, expected_output, device_expected_output, actual_output, loss
+
+        
 
         self.cur_val_loss = self._get_validation_set_loss()
 
@@ -222,10 +276,16 @@ class Trainer(object):
 
         self._update_train_loss_diff()
         self._update_val_loss_diff()
+        
+        del dtloadr, progress_bar
 
     def evaluate_performance(self, dataloader_fn):
         """Run model on the whole dataset and return evaluated performance"""
         init_model_state = self.model.training
+        
+        if isinstance(init_model_state, torch.Tensor):
+            print("~~~~~~~~~~~~~~~~~~~~~~~~~~ evaluate_performance.init_model_state - tensor")
+        
         self.model.eval()
 
         dtloadr = dataloader_fn()
@@ -236,19 +296,34 @@ class Trainer(object):
             total_metric = 0
             count = 0
             
-            progress_bar = tqdm(dtloadr)
+            progress_bar = tqdm(dtloadr, leave=False, ncols=80)
+            #progress_bar = dtloadr
             for (input, expected_output) in progress_bar:
-                input = input.to(self.device)
-                expected_output = expected_output.to(self.device)
-                actual_output = self.model(input)
+                device_input = input.to(self.device)
+                device_expected_output = expected_output.to(self.device)
+                
+                actual_output = self.model(device_input)
 
-                metric = self.final_eval_fn(actual_output, expected_output)
+                metric = self.final_eval_fn(actual_output, device_expected_output)
+                print("METRIC:  {}".format(metric))
+                
+                if isinstance(metric, torch.Tensor):
+                    print("~~~~~~~~~~~~~~~~~~~~~~~~~~ evaluate_performance.metric - tensor")
+                
                 total_metric += metric
                 count += 1
+                
+                del input, device_input, expected_output, device_expected_output, actual_output, metric
 
             performance = total_metric / count
+            
+            if isinstance(performance, torch.Tensor):
+                print("~~~~~~~~~~~~~~~~~~~~~~~~~~ evaluate_performance.performance - tensor") 
 
         self.model.train(init_model_state)
+        
+        del dtloadr, progress_bar
+        
         return performance
 
     def train(self, epochs_num):
@@ -274,28 +349,41 @@ class Trainer(object):
                 set correspondingly
         """
 
-        assert epochs_num > 0, "Cannot train for <= 0 epochs: {}".format(epochs_num)
+        #assert epochs_num > 0, "Cannot train for <= 0 epochs: {}".format(epochs_num)
         print("Training for {} epochs".format(epochs_num))
         print("Backing up results every {} epochs".format(self.backup_interval))
 
         start_epoch_idx = self.cur_epoch_idx + 1
         bkp_interval = self.backup_interval
+        
+        if isinstance(start_epoch_idx, torch.Tensor):
+            print("~~~~~~~~~~~~~~~~~~~~~~~~~~ train.start_epoch_idx - tensor") 
+        
+        if isinstance(bkp_interval, torch.Tensor):
+            print("~~~~~~~~~~~~~~~~~~~~~~~~~~ train.bkp_interval - tensor") 
 
         self.model.train()
 
         # progress bar
-        pbar = trange(start_epoch_idx, start_epoch_idx + epochs_num, ncols=80)
+        #pbar = trange(start_epoch_idx, start_epoch_idx + epochs_num, ncols=80)
+        pbar = range(start_epoch_idx, start_epoch_idx + epochs_num)
 
         for cur_epoch in pbar:
             self.cur_epoch_idx = cur_epoch
-            pbar.set_description("Train loss={tl}, diff={td}. " \
-                "Val loss={vl}, diff={vd}.".format( \
-                tl=self.cur_train_loss, td=self.train_loss_diff, \
-                vl=self.cur_val_loss, vd=self.val_loss_diff))
-            self._train_epoch()
+            if isinstance(self.cur_epoch_idx, torch.Tensor):
+                print("~~~~~~~~~~~~~~~~~~~~~~~~~~ train.self.cur_epoch_idx - tensor") 
+            
+#             pbar.set_description("Train loss={tl}, diff={td}. " \
+#                 "Val loss={vl}, diff={vd}.".format( \
+#                 tl=self.cur_train_loss, td=self.train_loss_diff, \
+#                 vl=self.cur_val_loss, vd=self.val_loss_diff))
 
-            if bkp_interval and ((cur_epoch + 1) % bkp_interval == 0):
-                self._back_up()
+            self._train_epoch()
+            self.cur_train_loss = 0
+            self.cur_val_loss = 0
+
+            #if bkp_interval and ((cur_epoch + 1) % bkp_interval == 0):
+            #    self._back_up()
 
         self.model.eval()
 
@@ -304,9 +392,14 @@ class Trainer(object):
                 self.evaluate_performance(self.train_dataloader_creator)
             self.final_val_eval = \
                 self.evaluate_performance(self.val_dataloader_creator)
-        self._back_up()
+        #self._back_up()
 
+        if isinstance(self.final_val_eval, torch.Tensor):
+            print("~~~~~~~~~~~~~~~~~~~~~~~~~~ train.self.final_val_eval - tensor") 
+        
         print("Done. Train performance = {ta}. Validation performance = {va}".
             format(ta = self.final_train_eval, va = self.final_val_eval))
 
+        del pbar
+        
         return (self.final_train_eval, self.final_val_eval)

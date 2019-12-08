@@ -226,10 +226,8 @@ class Trainer(object):
 
             actual_output = self.model(input)
             loss = self.loss_fn(actual_output, expected_output)
-<<<<<<< HEAD
             loss = loss.div(len(input))
-=======
->>>>>>> trainer implementation
+
             loss.backward()
             self.optimizer.step()
 

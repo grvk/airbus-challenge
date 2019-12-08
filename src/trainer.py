@@ -25,6 +25,11 @@ class Trainer(object):
             update weights (i.e. SGD or Adam)
         loss_fn(:obj:`function`, :obj:`torch.nn._Loss`): a loss function to
             be applied to the output of the model during training
+        final_eval_fn(function, optional): function that will run once training
+            is done to evaluate performance on train and validation sets.
+            Accepts expected output from dataloader and output from the model.
+            Example: classification accuracy or IoU for segmentation.
+            Nothing is run by default.
         train_dataloader_creator(:obj:`function`): function returning a
             new instance of a dataloader on a train dataset
         val_dataloader_creator(:obj:`function`): function returning a
@@ -42,7 +47,6 @@ class Trainer(object):
             Usually, comes as part of the backup. See _back_up() for more
             details. By default, provides clean state.
 
-
     Attributes:
         device(:obj:`torch.device`): device where neural net is being trained.
         model(:obj:`torch.nn.Module`): model that is being trained
@@ -50,10 +54,10 @@ class Trainer(object):
             each epoch. Calculated as a runtime average
         validation_loss_history(:obj:`list[float]`): loss values on validation
             set. Calculated at the end of each epoch.
-        final_train_acc(float): reported accuracy on train set at the end of the
-            training.
-        final_val_acc(float): reported accuracy on validation set at the end of
-            the training.
+        final_train_eval(float): reported evaluation on train set at the end of the
+            training (if requested)
+        final_val_eval(float): reported evaluation on validation set at the end of
+            the training (if requested)
     """
 
     DEFAULT_BACK_UP_PATH = path.join(path.dirname(__file__), '../backups/')
@@ -61,7 +65,7 @@ class Trainer(object):
 
     def __init__(self, model, optimizer, loss_fn,
             train_dataloader_creator, val_dataloader_creator,
-            backup_interval=None, device=None,
+            backup_interval=None, device=None, final_eval_fn=None,
             custom_back_up_path = None, trainer_state={}):
 
         self.device = device or torch.device("cpu")
@@ -69,6 +73,7 @@ class Trainer(object):
 
         self.optimizer = optimizer
         self.loss_fn = loss_fn
+        self.final_eval_fn = final_eval_fn
 
         self.train_dataloader_creator = train_dataloader_creator
         self.val_dataloader_creator = val_dataloader_creator
@@ -86,8 +91,8 @@ class Trainer(object):
         self.cur_val_loss = trainer_state.get("cur_val_loss", -1)
         self.train_loss_diff = trainer_state.get("train_loss_diff", -1)
         self.val_loss_diff = trainer_state.get("train_loss_diff", -1)
-        self.final_train_acc = trainer_state.get("final_train_acc", -1)
-        self.final_val_acc = trainer_state.get("final_val_acc", -1)
+        self.final_train_eval = trainer_state.get("final_train_eval", None)
+        self.final_val_eval = trainer_state.get("final_val_eval", None)
 
         self.back_up_path = custom_back_up_path
         if self.back_up_path is None:
@@ -104,6 +109,9 @@ class Trainer(object):
             makedirs(self.back_up_path)
 
     def _back_up(self):
+
+        fnl_ev = self.final_eval_fn
+
         backup = {
             'states' : {
                 'model': self.model.state_dict(),
@@ -111,6 +119,7 @@ class Trainer(object):
             },
             'fn_strings': {
                 'loss_fn': getsource(self.loss_fn),
+                'final_eval_fn': getsource(fnl_ev) if fnl_ev is not None else None,
                 'train_dataloader_creator': \
                     getsource(self.train_dataloader_creator),
                 'val_dataloader_creator': getsource(self.val_dataloader_creator)
@@ -124,8 +133,8 @@ class Trainer(object):
                 'cur_val_loss': self.cur_val_loss,
                 'train_loss_diff': self.train_loss_diff,
                 'val_loss_diff': self.val_loss_diff,
-                'final_train_acc': self.final_train_acc,
-                'final_val_acc': self.final_val_acc,
+                'final_train_eval': self.final_train_eval,
+                'final_val_eval': self.final_val_eval,
                 'back_up_path': self.back_up_path
             }
         }
@@ -179,6 +188,7 @@ class Trainer(object):
 
                 actual_output = self.model(input)
                 loss = self.loss_fn(actual_output, expected_output).item()
+                loss = loss / len(input)
                 val_loss_total += loss
                 val_batches += 1
 
@@ -205,6 +215,7 @@ class Trainer(object):
 
             actual_output = self.model(input)
             loss = self.loss_fn(actual_output, expected_output)
+            loss = loss.div(len(input))
             loss.backward()
             self.optimizer.step()
 
@@ -248,31 +259,31 @@ class Trainer(object):
         self._update_train_loss_diff()
         self._update_val_loss_diff()
 
-    def evaluate_accuracy(self, dataloader_fn):
-        """Run model on the whole dataset and return accuracy"""
+    def evaluate_performance(self, dataloader_fn):
+        """Run model on the whole dataset and return evaluated performance"""
         init_model_state = self.model.training
         self.model.eval()
 
         dtloadr = dataloader_fn()
-        acc = -1
 
+        performance = None
         with torch.no_grad():
-            correct = 0
-            total = 0
 
+            total_metric = 0
+            count = 0
             for (input, expected_output) in dtloadr:
                 input = input.to(self.device)
                 expected_output = expected_output.to(self.device)
-
                 actual_output = self.model(input)
-                predictions = torch.argmax(actual_output.data, 1)
-                correct += (predictions == expected_output).sum().item()
-                total += expected_output.size(0)
 
-            acc = correct / total
+                metric = self.final_eval_fn(actual_output, expected_output)
+                total_metric += metric
+                count += 1
+
+            performance = total_metric / count
 
         self.model.train(init_model_state)
-        return acc
+        return performance
 
     def train(self, epochs_num):
         """
@@ -338,11 +349,14 @@ class Trainer(object):
 
         self.model.eval()
 
-        self.final_train_acc = self.evaluate_accuracy(self.train_dataloader_creator)
-        self.final_val_acc = self.evaluate_accuracy(self.val_dataloader_creator)
+        if self.final_eval_fn is not None:
+            self.final_train_eval = \
+                self.evaluate_performance(self.train_dataloader_creator)
+            self.final_val_eval = \
+                self.evaluate_performance(self.val_dataloader_creator)
         self._back_up()
 
-        print("Done training. Train Accuracy = {ta}. Validation accuracy = {va}".
-            format(ta = self.final_train_acc, va = self.final_val_acc))
+        print("Done. Train performance = {ta}. Validation performance = {va}".
+            format(ta = self.final_train_eval, va = self.final_val_eval))
 
-        return (self.final_train_acc, self.final_val_acc)
+        return (self.final_train_eval, self.final_val_eval)

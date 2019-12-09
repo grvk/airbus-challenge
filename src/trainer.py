@@ -43,6 +43,8 @@ class Trainer(object):
             optimizer. Defaults to torch.device("cpu").
         custom_back_up_path(string, optional): path to the directory,
             where backups will be stored. Defaults to airbus-challenge/backups
+        is_debug_mode(bool): if in debug mode, autograd.detect_anomaly()
+            hook will be used to make sure no tensers become nan's
         trainer_state(:obj:`dict`, optional): trainer state to initialize with.
             Usually, comes as part of the backup. See _back_up() for more
             details. By default, provides clean state.
@@ -66,7 +68,10 @@ class Trainer(object):
     def __init__(self, model, optimizer, loss_fn,
             train_dataloader_creator, val_dataloader_creator,
             backup_interval=None, device=None, final_eval_fn=None,
-            custom_back_up_path = None, trainer_state={}):
+            custom_back_up_path = None, is_debug_mode=False, trainer_state={}):
+
+        if is_debug_mode:
+            torch.autograd.set_detect_anomaly(True)
 
         self.device = device or torch.device("cpu")
         self.model = model
@@ -302,7 +307,6 @@ class Trainer(object):
             tuple(float, float): model accuracies on the train and validation
                 set correspondingly
         """
-
         assert epochs_num > 0, "Cannot train for <= 0 epochs: {}".format(epochs_num)
         print("Training for {} epochs".format(epochs_num))
         print("Backing up results every {} epochs".format(self.backup_interval))

@@ -32,13 +32,11 @@ all_images = torch.load(ALL_IMAGES_BACKUP_PATH)
 images = torch.load(TRAIN_VAL_TEST_IMAGES_BACKUP_PATH)
 
 filtered_all_images = all_images
-#filtered_all_images["w/ships"].sort() #
 
 for set_type in ["val", "test"]:
     for key in images[set_type]["images"]["ships"]:
         del filtered_all_images["ships"][key]
 
-    #images[set_type]["images"]["w/ships"].sort()
     for elem in images[set_type]["images"]["w/ships"]:
         if elem in filtered_all_images["w/ships"]:
             filtered_all_images["w/ships"].remove(elem)
@@ -61,7 +59,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 dtset = AirbusDataset(ships_only_images, TRAIN_IMAGES_PATH,
     "classification", transforms.ToTensor())
 
-dtldr = DataLoader(dataset = dtset, num_workers = 2, batch_size = 64)
+dtldr = DataLoader(dataset = dtset, num_workers = 2, batch_size = 256)
 ships_only_std, ships_only_mean = find_per_channel_std_mean(dtldr, device)
 
 ships_only_data = {
@@ -76,6 +74,10 @@ torch.save(ships_only_data, SHIPS_ONLY_PATH)
 #
 # ------------------------------------------------------------------------------
 ships_only_data = torch.load(SHIPS_ONLY_PATH)
+# ships_only_images = ships_only_data["images"]
+# images = torch.load(TRAIN_VAL_TEST_IMAGES_BACKUP_PATH)
+# ships_only_std = ships_only_data["std"]
+# ships_only_mean = ships_only_data["mean"]
 
 ships_only_num_of_images = len(ships_only_images["ships"])
 # number of images in the original train set
@@ -87,7 +89,7 @@ ships_only_items = list(ships_only_images["ships"].items())
 
 i = 0
 while i < ships_only_num_of_images:
-    subsets.append({
+    ships_only_subsets.append({
         "w/ships": [],
         "ships": dict(ships_only_items[i: (i + iterations_in_epoch)])
     })
@@ -118,7 +120,7 @@ source_transforms = [transforms.Compose([ transforms.ToTensor(),
 
 train_datasets = [AirbusDataset(imgs, TRAIN_IMAGES_PATH, "segmentation",
     src_trnsfrm, transforms.ToTensor()) for imgs, src_trnsfrm \
-    in zip(subsets, source_transforms)]
+    in zip(ships_only_subsets, source_transforms)]
 
 def train_dataloader_creator():
     cur_idx = -1
@@ -164,17 +166,16 @@ NUM_OF_EPOCHS = 50
 BACKUP_INTERVAL = 1
 
 cuda_count = torch.cuda.device_count()
-if gpu_count == 0:
+if cuda_count == 0:
     cuda_count = torch.device('cpu')
 else:
     device = torch.device('cuda')
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') #???
 loss_fn = CrossEntropyLoss2D(reduction='sum').to(device)
 
 net = FCN8s(CLASSES_NUM, 'imagenet')
 if cuda_count > 1:
-    net = torch.nn.DataParallel(net, gpu_ids=list(range(cuda_count)))
+    net = torch.nn.DataParallel(net, device_ids=list(range(cuda_count)))
 net.to(device)
 
 optimizer = torch.optim.SGD(net.parameters(), \
@@ -185,4 +186,4 @@ trainer = Trainer(net, optimizer, loss_fn, \
     backup_interval=BACKUP_INTERVAL, device=device, final_eval_fn = None, \
     additional_backup_info=ships_only_subsets_data, is_debug_mode=True)
 
-trainer.train(1)
+# trainer.train(1)

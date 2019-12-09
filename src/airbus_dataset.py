@@ -5,7 +5,6 @@ import random
 import collections
 import numpy as np
 import pandas as pd
-from .misc import *
 from torch.utils import data as D
 from .rle_handler import RLEHandler
 
@@ -33,13 +32,16 @@ class AirbusDataset(D.Dataset):
         self.path_to_images = path_to_images
         self.loader_type = loader_type
         self.replacement = replacement
-        self.image_filenames = list(image_dict["ships"].keys()) + image_dict["w/ships"]
+        self.image_filenames = np.sort(list(image_dict["ships"].keys()) + \
+            image_dict["w/ships"]).tolist()
+
+        self.images_num = len(self.image_filenames)
         self.src_transform = src_transform
         self.target_transform = target_transform
         self.resize_transform = None
 
     def __len__(self):
-        return len(self.image_filenames)
+        return self.images_num
 
     def retrive_image_matrix(self, image_id):
         """
@@ -68,6 +70,9 @@ class AirbusDataset(D.Dataset):
 
         """
 
+        # if with replacement, then it's the same as randomly selecting an image
+        if self.replacement:
+            idx = random.randint(0, self.images_num)
 
         image_id = self.image_filenames[idx]
         no_ship_list = self.image_dict["w/ships"]
@@ -100,17 +105,4 @@ class AirbusDataset(D.Dataset):
 
             sample = (image_mat, mask)
 
-
-        # remove image id if sample with replacement
-        if not self.replacement:
-            self.image_filenames.remove(image_id)
-
-        return sample
-
-    def __random_sampler__(self):
-        n_image_list = len(self.image_filenames)
-
-        # randomly choose a idx
-        random_idx = random.randint(0,n_image_list)
-        sample = self.__getitem__(random_idx)
         return sample

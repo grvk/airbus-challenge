@@ -45,6 +45,7 @@ class Trainer(object):
             where backups will be stored. Defaults to airbus-challenge/backups
         is_debug_mode(bool): if in debug mode, autograd.detect_anomaly()
             hook will be used to make sure no tensers become nan's
+        additional_backup_info(dict): any extra info that needs to be backed up
         trainer_state(:obj:`dict`, optional): trainer state to initialize with.
             Usually, comes as part of the backup. See _back_up() for more
             details. By default, provides clean state.
@@ -64,16 +65,18 @@ class Trainer(object):
 
     DEFAULT_BACK_UP_PATH = path.join(path.dirname(__file__), '../backups/')
     DEFAULT_BACK_UP_INTERVAL = 10
+    DEFAULT_DEVICE = torch.device('cpu')
 
     def __init__(self, model, optimizer, loss_fn,
             train_dataloader_creator, val_dataloader_creator,
-            backup_interval=None, device=None, final_eval_fn=None,
-            custom_back_up_path = None, is_debug_mode=False, trainer_state={}):
+            backup_interval=None, device=DEFAULT_DEVICE, final_eval_fn=None,
+            custom_back_up_path = None, is_debug_mode=False,
+            additional_backup_info = None, trainer_state={}):
 
         if is_debug_mode:
             torch.autograd.set_detect_anomaly(True)
 
-        self.device = device or torch.device("cpu")
+        self.device = device
         self.model = model
 
         self.optimizer = optimizer
@@ -90,6 +93,8 @@ class Trainer(object):
         if self.backup_interval is None:
             self.backup_interval = trainer_state.get(
             'backup_interval', Trainer.DEFAULT_BACK_UP_INTERVAL)
+
+        self.additional_backup_info = additional_backup_info
 
         self.cur_epoch_idx = trainer_state.get('cur_epoch_idx', 0)
         self.cur_train_loss = trainer_state.get("cur_train_loss", -1)
@@ -138,7 +143,8 @@ class Trainer(object):
                 'final_train_eval': self.final_train_eval,
                 'final_val_eval': self.final_val_eval,
                 'back_up_path': self.back_up_path
-            }
+            },
+            'additional_info': self.additional_backup_info
         }
 
         torch.save(backup, path.join(self.back_up_path,

@@ -35,6 +35,7 @@ class AirbusDataset(D.Dataset):
         self.image_filenames = np.sort(list(image_dict["ships"].keys()) + \
             image_dict["w/ships"]).tolist()
 
+        self.image_filenames = list(image_dict["ships"].keys()) + image_dict["w/ships"]
         self.images_num = len(self.image_filenames)
         self.src_transform = src_transform
         self.target_transform = target_transform

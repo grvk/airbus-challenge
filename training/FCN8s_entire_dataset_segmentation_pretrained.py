@@ -21,88 +21,93 @@ SHIPS_ONLY_PATH = path.join(BACKUPS_FOLDER, "ships_only_images.pth")
 SHIPS_ONLY_SUBSETS_PATH = path.join(BACKUPS_FOLDER, "ships_only_subsets_images.pth")
 
 
-# ------------------------------------------------------------------------------
-# STEP 1: PARSE  TRAIN_VAL_TEST SET AND FIND ALL OTHER IMAGES THAT
-# ARE NOT A PART OF ANY OF THESE THREE DATASETS
-# ------------------------------------------------------------------------------
+# # ------------------------------------------------------------------------------
+# # STEP 1: PARSE  TRAIN_VAL_TEST SET AND FIND ALL OTHER IMAGES THAT
+# # ARE NOT A PART OF ANY OF THESE THREE DATASETS
+# # ------------------------------------------------------------------------------
 
-all_images = build_images_dict(CSV_TRAIN_FILE)
-torch.save(all_images, ALL_IMAGES_BACKUP_PATH)
-all_images = torch.load(ALL_IMAGES_BACKUP_PATH)
-images = torch.load(TRAIN_VAL_TEST_IMAGES_BACKUP_PATH)
-
-filtered_all_images = all_images
-
-for set_type in ["val", "test"]:
-    for key in images[set_type]["images"]["ships"]:
-        del filtered_all_images["ships"][key]
-
-    for elem in images[set_type]["images"]["w/ships"]:
-        if elem in filtered_all_images["w/ships"]:
-            filtered_all_images["w/ships"].remove(elem)
-
-# randomly sample the w/ships so that the number of images with ships and
-# without was equal
-filtered_all_images = process_images_dict(filtered_all_images)
-torch.save(filtered_all_images, FILTERED_ALL_IMAGES_PATH)
-
-# ------------------------------------------------------------------------------
-# STEP 2: GET A SUBSET OF ALL IMAGES IN WHICH YOU CAN ALWAYS FIND A SHIP
-# FOR THIS DATASET FIND CHANNEL-WISE STD AND MEAN VALUES
-# ------------------------------------------------------------------------------
-
-filtered_all_images = torch.load(FILTERED_ALL_IMAGES_PATH)
-ships_only_images = filtered_all_images
-ships_only_images["w/ships"] = []
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-dtset = AirbusDataset(ships_only_images, TRAIN_IMAGES_PATH,
-    "classification", transforms.ToTensor())
-
-dtldr = DataLoader(dataset = dtset, num_workers = 2, batch_size = 256)
-ships_only_std, ships_only_mean = find_per_channel_std_mean(dtldr, device)
-
-ships_only_data = {
-    "images": ships_only_images,
-    "mean": ships_only_mean,
-    "std": ships_only_std
-}
-torch.save(ships_only_data, SHIPS_ONLY_PATH)
-
-# ------------------------------------------------------------------------------
-# STEP 3: GET SUBSETS OF SIZE = ORIGINAL TRAIN DATA SET IN TRAIN_VAL_TEST
-#
-# ------------------------------------------------------------------------------
-ships_only_data = torch.load(SHIPS_ONLY_PATH)
-# ships_only_images = ships_only_data["images"]
+# all_images = build_images_dict(CSV_TRAIN_FILE)
+# torch.save(all_images, ALL_IMAGES_BACKUP_PATH)
+# all_images = torch.load(ALL_IMAGES_BACKUP_PATH)
 # images = torch.load(TRAIN_VAL_TEST_IMAGES_BACKUP_PATH)
-# ships_only_std = ships_only_data["std"]
-# ships_only_mean = ships_only_data["mean"]
 
-ships_only_num_of_images = len(ships_only_images["ships"])
-# number of images in the original train set
-iterations_in_epoch = len(images["train"]["images"]['ships']) + \
-    len(images["train"]["images"]['w/ships'])
+# filtered_all_images = all_images
 
-ships_only_subsets = []
-ships_only_items = list(ships_only_images["ships"].items())
+# for set_type in ["val", "test"]:
+#     for key in images[set_type]["images"]["ships"]:
+#         del filtered_all_images["ships"][key]
 
-i = 0
-while i < ships_only_num_of_images:
-    ships_only_subsets.append({
-        "w/ships": [],
-        "ships": dict(ships_only_items[i: (i + iterations_in_epoch)])
-    })
-    i += iterations_in_epoch
+#     for elem in images[set_type]["images"]["w/ships"]:
+#         if elem in filtered_all_images["w/ships"]:
+#             filtered_all_images["w/ships"].remove(elem)
 
-ships_only_subsets_data = {
-    "subsets_images": ships_only_subsets,
-    "global_std": ships_only_std,
-    "global_mean": ships_only_mean
-}
+# # randomly sample the w/ships so that the number of images with ships and
+# # without was equal
+# filtered_all_images = process_images_dict(filtered_all_images)
+# torch.save(filtered_all_images, FILTERED_ALL_IMAGES_PATH)
 
-torch.save(ships_only_subsets_data, SHIPS_ONLY_SUBSETS_PATH)
+# # ------------------------------------------------------------------------------
+# # STEP 2: GET A SUBSET OF ALL IMAGES IN WHICH YOU CAN ALWAYS FIND A SHIP
+# # FOR THIS DATASET FIND CHANNEL-WISE STD AND MEAN VALUES
+# # ------------------------------------------------------------------------------
+
+# filtered_all_images = torch.load(FILTERED_ALL_IMAGES_PATH)
+# ships_only_images = filtered_all_images
+# ships_only_images["w/ships"] = []
+# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# dtset = AirbusDataset(ships_only_images, TRAIN_IMAGES_PATH,
+#     "classification", transforms.ToTensor())
+
+# dtldr = DataLoader(dataset = dtset, num_workers = 2, batch_size = 256)
+# ships_only_std, ships_only_mean = find_per_channel_std_mean(dtldr, device)
+
+# ships_only_data = {
+#     "images": ships_only_images,
+#     "mean": ships_only_mean,
+#     "std": ships_only_std
+# }
+# torch.save(ships_only_data, SHIPS_ONLY_PATH)
+
+# # ------------------------------------------------------------------------------
+# # STEP 3: GET SUBSETS OF SIZE = ORIGINAL TRAIN DATA SET IN TRAIN_VAL_TEST
+# #
+# # ------------------------------------------------------------------------------
+# ships_only_data = torch.load(SHIPS_ONLY_PATH)
+# # ships_only_images = ships_only_data["images"]
+# # images = torch.load(TRAIN_VAL_TEST_IMAGES_BACKUP_PATH)
+# # ships_only_std = ships_only_data["std"]
+# # ships_only_mean = ships_only_data["mean"]
+
+# ships_only_num_of_images = len(ships_only_images["ships"])
+# # number of images in the original train set
+# iterations_in_epoch = len(images["train"]["images"]['ships']) + \
+#     len(images["train"]["images"]['w/ships'])
+
+# ships_only_subsets = []
+# ships_only_items = list(ships_only_images["ships"].items())
+
+# i = 0
+# while i < ships_only_num_of_images:
+#     ships_only_subsets.append({
+#         "w/ships": [],
+#         "ships": dict(ships_only_items[i: (i + iterations_in_epoch)])
+#     })
+#     i += iterations_in_epoch
+
+# ships_only_subsets_data = {
+#     "subsets_images": ships_only_subsets,
+#     "global_std": ships_only_std,
+#     "global_mean": ships_only_mean
+# }
+
+# torch.save(ships_only_subsets_data, SHIPS_ONLY_SUBSETS_PATH)
 ships_only_subsets_data = torch.load(SHIPS_ONLY_SUBSETS_PATH)
+
+ships_only_mean = ships_only_subsets_data["global_mean"]
+ships_only_std = ships_only_subsets_data["global_std"]
+ships_only_subsets = ships_only_subsets_data["subsets_images"]
+
 
 # ------------------------------------------------------------------------------
 # STEP 4: CREATE ACTUAL DATASETS FOR EACH OF THE SUBSETS AND DEFINE DATALOADER
@@ -158,11 +163,11 @@ MOMENTUM = .9
 WEIGHT_DECAY = 5**(-4)
 
 DATA_LOADER_OPTS = {
-    "batch_size": 4,
-    "num_workers": 4,
+    "batch_size": 16,
+    "num_workers": 8,
     "shuffle": True
 }
-NUM_OF_EPOCHS = 50
+NUM_OF_EPOCHS = 100
 BACKUP_INTERVAL = 1
 
 cuda_count = torch.cuda.device_count()
@@ -184,6 +189,6 @@ optimizer = torch.optim.SGD(net.parameters(), \
 trainer = Trainer(net, optimizer, loss_fn, \
     train_dataloader_creator(), val_dataloader_creator, \
     backup_interval=BACKUP_INTERVAL, device=device, final_eval_fn = None, \
-    additional_backup_info=ships_only_subsets_data, is_debug_mode=True)
+    additional_backup_info=ships_only_subsets_data, is_debug_mode=False)
 
-# trainer.train(1)
+trainer.train(NUM_OF_EPOCHS)

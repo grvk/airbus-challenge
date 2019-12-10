@@ -1,6 +1,7 @@
 import collections
 import random
 import pandas as pd
+import numpy as np
 import torch
 from .airbus_dataset import AirbusDataset
 from torchvision import transforms
@@ -54,6 +55,94 @@ class CrossEntropyLoss2D(torch.nn.CrossEntropyLoss):
 
         res = super(CrossEntropyLoss2D, self).forward(prediction, target)
         return res if self.norm_coef == 1 else res * self.norm_coef
+
+def IntersectionOverUnion(prediction, mask, exclude_classes=[]):
+    """Vectorized Computation of Intersections over Unions
+        
+    For each class, calculate IoU =
+    true positive / (true positives + false positives + false negatives)
+
+    Example:
+    If there are two images with two classes (0 - background, 1 - object),
+    exclude_classes = [].
+    
+    iou_class_0 = [(IoU(image = 1, background) + IoU(image = 2, background)] / 2
+    iou_class_1 = [(IoU(image = 1, object) + IoU(image = 2, object)] / 2
+
+    Note, if an image has no objects of a given class:
+
+    IoU(image, class) = 
+        0 - if some objects were detected 
+        1 - if no objects were detected
+
+    Args:
+        prediction(:obj:`array-like`): i.e. tensor, list, or 
+            numpy array. Expected Shape: (IMAGES_NUM x Classes x H x W)
+        mask(:ob:`torch.Tensor`): Expected classes for each of 
+            the elements in `prediction`. Only allowed values 
+            are matching indices of the Classes of `prediction`: 
+            mask values in [0; Classes - 1].
+            Expected shape: (IMAGES_NUM x H x W).
+        exclude_bg_idx(list, optional): index of Classes to 
+            exclude in calculation (i.e. of background)
+    
+    Returns:
+        (mean IoU - over classes, [iou_class_1, ..., iou_class_n]) -
+            with None values for the excluded classes
+
+    """
+    
+    # shape (IMAGES_NUM x CLASSES x HEIGHT x WIDTH)
+    num_images, n_classes, h, w = prediction.shape
+
+    # return indices of a class with the max value
+    # assumption the mask is encoded with indices of layers
+    # output: (N x HEIGHT x WIDTH)
+    mask = mask.astype(float)
+    prediction = np.argmax(prediction, axis = 1).astype(float)
+
+    ious = []
+
+    for cls in range(n_classes):
+        if cls in exclude_classes:
+            ious.append(None)
+            continue
+
+        a = prediction == cls
+        b = mask == cls
+        # get intersections and unions per each image
+        # output: (N,)
+        intersections = np.sum(a & b, dtype=np.float, axis=(1,2))
+        unions = np.sum(a | b, dtype=np.float, axis=(1,2))
+
+        # indices of images expecting objects of this class
+        indcs_expctng_cls = np.sum(b, axis=(1,2), dtype=bool) # (N,)
+        # indices of images with detected objects of this class
+        indcs_dtctd_cls = np.sum(a, axis=(1,2), dtype=bool) # (N,)
+
+        ious_per_img = np.full((num_images,), None)  
+
+        # 0 - if some objects were detected though none expected
+        ious_per_img[indcs_dtctd_cls != indcs_expctng_cls] = 0
+
+        # 1 - if some objects were neither detected nor expected
+        ious_per_img[indcs_dtctd_cls == indcs_expctng_cls] = 1
+
+        # union is never 0
+        ious_per_img[indcs_expctng_cls] = \
+            intersections[indcs_expctng_cls] / unions[indcs_expctng_cls]
+
+        iou = np.sum(ious_per_img, dtype=float) / num_images
+        ious.append(iou)
+
+    calculated_ious_indices = ious != None
+    calculated_ious_num = np.sum(calculated_ious_indices)
+    calculated_ious = ious[calculated_ious_indices]
+
+    mean_iou = np.sum(calculated_ious) / calculated_ious_num
+
+    return (mean_iou, ious)
+
 
 # output: a dictionary {"ships": {"imageId": list of segmentation pixels}， “w/ships”: ["imageId"]}
 def build_images_dict(csv_fn):

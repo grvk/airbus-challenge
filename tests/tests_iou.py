@@ -3,7 +3,6 @@ import numpy as np
 from src import IntersectionOverUnion
 
 
-
 class IoUTests(unittest.TestCase):
 
 	# For all tests below assume that "image belongs to class" = "each pixel
@@ -11,7 +10,7 @@ class IoUTests(unittest.TestCase):
 
 	@classmethod
 	def assert_ious_equal(cls, received, expected, prediction, mask, val_type):
-		
+
 		# to make sure np.isnan and np.all are always available
 		r = np.array(received)
 		e = np.array(expected)

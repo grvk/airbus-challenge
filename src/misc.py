@@ -77,9 +77,9 @@ def IntersectionOverUnion(prediction, mask, exclude_classes=[]):
         NaN - (don't count it) 
 
     Args:
-        prediction(:obj:`np.ndarray`): i.e. tensor, list, or 
+        prediction(:obj:`numpy.ndarray`): i.e. tensor, list, or 
             numpy array. Expected Shape: (IMAGES_NUM x Classes x H x W)
-        mask(:obj:`np.ndarray`): Expected classes for each of 
+        mask(:obj:`numpy.ndarray`): Expected classes for each of 
             the elements in `prediction`. Only allowed values 
             are matching indices of the Classes of `prediction`: 
             mask values in [0; Classes - 1].
@@ -89,7 +89,7 @@ def IntersectionOverUnion(prediction, mask, exclude_classes=[]):
     
     Returns:
         (mean IoU - over classes, [iou_class_1, ..., iou_class_n]) -
-            with NaN values for the excluded classes. All values are np.{type}
+            with NaN values for the excluded classes. All values are numpy.{type}
             If some class wasn't expected or detected on all images,
             NaN will be reported as well
 

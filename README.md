@@ -3,6 +3,10 @@
 1. Run ```./scripts/download.sh```
 2. Make sure ```conda``` is installed
 
+# To train a model:
+1. Duplicate and modify ```training/FCN8s_template.py``` file
+2. Start training: ```python -m training.FCN8s_template```
+
 # To execute tests, run:
 ```python -m unittest discover -v -p "tests_*py"```
 

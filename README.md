@@ -2,7 +2,6 @@
 
 1. Run ```./scripts/download.sh```
 2. Make sure ```conda``` is installed
-3. See errors about missing modules and install them :D
 
 # To execute tests, run:
 ```python -m unittest discover -v -p "tests_*py"```

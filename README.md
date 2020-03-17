@@ -1,5 +1,7 @@
 # airbus-challenge
 
+See [Airbus Ship Detection](https://www.kaggle.com/c/airbus-ship-detection) challenge on Kaggle for more details on the given problem
+
 1. Run ```./scripts/download.sh```
 2. Make sure ```conda``` is installed
 
